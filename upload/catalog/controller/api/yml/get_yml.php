@@ -6,6 +6,10 @@
  * Returned YML for the all goods
  */
 
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 class ControllerApiYmlGetYml extends Controller
 {
     private $YML_KEY_PROM;
@@ -15,10 +19,6 @@ class ControllerApiYmlGetYml extends Controller
      */
     public function index()
     {
-        ini_set('display_errors', 1);
-        ini_set('display_startup_errors', 1);
-        error_reporting(E_ALL);
-
         $this->YML_KEY_PROM = 'ajshdgDHGjH82376KJHKjhgj';
 
         $this->load->language('api/yml/get_yml');
@@ -37,6 +37,51 @@ class ControllerApiYmlGetYml extends Controller
         } else echo '-= fuck off =-';
 
 
+    }
+
+    //Checking, is date and time above that Friday 16:00 and below 6:00 of Monday
+    private function isWeekEndPrices() {
+        $time = date('H:i', time());
+        if ($this->isNowRightDay('Monday')
+            && (strtotime($time) >= strtotime("17:00")
+                || strtotime($time) < strtotime("6:00"))
+        ){
+            return true;
+        }else if ($this->isNowRightDay('Tuesday')
+            && (strtotime($time) >= strtotime("17:00")
+                || strtotime($time) < strtotime("6:00"))
+        ){
+            return true;
+        }else if ($this->isNowRightDay('Wednesday')
+            && (strtotime($time) >= strtotime("17:00")
+                || strtotime($time) < strtotime("6:00"))
+        ){
+            return true;
+        }else if ($this->isNowRightDay('Thursday')
+            && (strtotime($time) >= strtotime("17:00")
+                || strtotime($time) < strtotime("6:00"))
+        ){
+            return true;
+        }else if ($this->isNowRightDay('Friday')
+            && (strtotime($time) >= strtotime("16:00")
+                || strtotime($time) < strtotime("6:00"))
+        ) {
+            return true;
+        } elseif ($this->isNowRightDay('Saturday')) {
+            return true;
+        } elseif ($this->isNowRightDay('Sunday')) {
+            return true;
+        }
+        return false;
+    }
+
+    //Compare now day with argument
+    private function isNowRightDay($dayOfWeek) {
+        $dayOfWeek = new DateTime($dayOfWeek);
+        $nowDayOfWeek = new DateTime(date('l'));
+        $interval = $nowDayOfWeek->diff($dayOfWeek);
+        $diff = $interval->format('%R%a');
+        return (int)$diff === 0;
     }
 
     private function getPromYml()
@@ -92,7 +137,7 @@ class ControllerApiYmlGetYml extends Controller
         if ($resultCategories) {
             foreach($resultCategories->rows as $row) {
 
-                $categoryPromIds = $this->model_api_yml_get_yml->getCategoryPromId($row['name']);
+                $categoryPromIds = $this->model_api_yml_get_yml->getCategoryProm($row['name']);
                 $categoryPromId = '';
                 $categoryParentPromId = '';
                 if ($categoryPromIds) {
@@ -130,6 +175,7 @@ class ControllerApiYmlGetYml extends Controller
                 $model = $row['model'];
                 $manufacturerId = $row['manufacturer_id'];
                 $stock_quantity = $row['quantity'];
+                $vendorName = $this->model_api_yml_get_yml->getVendorName($manufacturerId);
 
                 $totalProducts++;
 
@@ -165,38 +211,81 @@ class ControllerApiYmlGetYml extends Controller
                 $offer->addChild('url', $textUrl);
 
 
-                $priceId = 4; //Розничный тип цены
-                $priceSpecial = $this->model_api_yml_get_yml->getSpecialPrice($productId, $priceId);
-                if ($priceSpecial) {
-                    $offer->addChild('oldprice', $row['price']);
-                    $offer->addChild('price', $priceSpecial);
+                //Доработка от 15 мая 2021, Давыдова Ирина
+                if ($this->isWeekEndPrices()) {
+                    $customerGroupId = 2;//2 - МИН Розница
+                    $priceSpecial = $this->model_api_yml_get_yml->getDiscountValue($productId, $customerGroupId);
+                    if ($priceSpecial) {
+                        if($priceSpecial < $row['price']) { // If SpecialPrice exist and < Price
+                            $offer->addChild('oldprice', $row['price']);
+                            $offer->addChild('price', $priceSpecial);
+                        } else { // If SpecialPrice >= Price
+                            $offer->addChild('price', $row['price']);
+                        }
+                    } else { // If SpecialPrice is Not exist
+                        $offer->addChild('price', $row['price']);
+                    }
                 } else {
-                    $offer->addChild('price', $row['price']);
+                    $priceId = 4; //Розничный тип цены
+                    $priceSpecial = $this->model_api_yml_get_yml->getSpecialPrice($productId, $priceId); //Uncomment in case rollback
+
+                    if ($priceSpecial) {
+                        $offer->addChild('oldprice', $row['price']);
+                        $offer->addChild('price', $priceSpecial);
+                    } else {
+                        $offer->addChild('price', $row['price']);
+                    }
                 }
+
+
+
+
+                //Get wholesale price (customer price ID = 16)
+                $wholesale = $this->model_api_yml_get_yml->getWholesalePrice($productId, 16);
+
+                $isWholesaleEnable = true;
+                // if (strcmp($vendorName, "Artel") === 0 || strcmp($vendorName, "Milano") === 0
+                //     || strcmp($vendorName, "MIDEA") === 0) $isWholesaleEnable = false;
+
+                if ($wholesale && $isWholesaleEnable && $wholesale > 0) {
+                    $offer->addAttribute("selling_type", "u"); //Товар продается оптом и в розницу
+                    $prices = $offer->addChild('prices');
+                    $opt_price = $prices->addChild('price');
+                    $opt_price->addChild('value', $wholesale);
+                    $opt_price->addChild('quantity', 2);
+                } else $offer->addAttribute("selling_type", "r"); //Товар продается только в розницу
 
                 $offer->addChild('currencyId', 'UAH');
 
                 //Checking if category prom Id exist in current product - add it to YML, else - add code from 1C
                 $productPromCategoryId = $this->model_api_yml_get_yml->getProductPromCategoryId($productId);
-                if ($productPromCategoryId) $offer->addChild('categoryId', $productPromCategoryId);
-                else {
+                if ($productPromCategoryId) $offer->addChild('categoryId', $productPromCategoryId); //Searching in prom_product table
+                else { // Not found in prom_product table (this product is new, for example)
+
+                    // Get 1C category ID
                     $categoryId = $this->model_api_yml_get_yml->getCategoryId($productId);
-                    if ($categoryId) $offer->addChild('categoryId', $categoryId);
-                    else $offer->addChild('categoryId', 0);
+                    // Try to get category from prom_category table by 1C id
+                    $productPromCategoryId = $this->model_api_yml_get_yml->getCategoryPromByRealId($categoryId);
+
+                    if ($productPromCategoryId) $offer->addChild('categoryId', $productPromCategoryId);
+                    else $offer->addChild('categoryId', $categoryId);
                 }
 
-                $img = 'https://optovik.shop/image/' . $row['image'];
-                $offer->addChild('picture', $img);
+                if(isset($row['image']) && strlen($row['image']) > 1){
+                    $img = 'https://optovik.shop/image/' . $row['image'];
+                    $offer->addChild('picture', $img);
+                }
 
                 $listImages = $this->model_api_yml_get_yml->getImages($productId);
                 if ($listImages) {
                     foreach($listImages->rows as $row7) {
-                        $img = 'https://optovik.shop/image/' . $row7['image'];
-                        $offer->addChild('picture', $img);
+                        if (isset($row7['image']) && strlen($row['image']) > 1) {
+                            $img = 'https://optovik.shop/image/' . $row7['image'];
+                            $offer->addChild('picture', $img);
+                        }
                     }
                 }
 
-                $vendorName = $this->model_api_yml_get_yml->getVendorName($manufacturerId);
                 $offer->addChild('vendor', $vendorName);
                 $offer->addChild('vendorCode', $model);
                 $offer->addChild('quantity_in_stock', $stock_quantity);
@@ -207,8 +296,12 @@ class ControllerApiYmlGetYml extends Controller
                 if ($productDescription) {
                     foreach($productDescription->rows as $row2) {
 //                        $text = $this->removeHtmlHeaders($row2['description']);
-                                $text = $row2['description'];
-                        $name = $offer->addChild('name', htmlspecialchars($row2['name']));
+//                        $text = $row2['description'];
+                        $text = preg_replace('/&(?!#?[a-z0-9]+;)/', '&amp;', $row2['description']);
+
+                        $name = preg_replace('/&(?!#?[a-z0-9]+;)/', '&amp;', $row2['name']);
+                        $name = $offer->addChild('name', htmlspecialchars($name));
+
                         if (strlen(trim($text)) == 0) {
                             $offer->addChild('description', $name);
                         } else {
@@ -230,10 +323,12 @@ class ControllerApiYmlGetYml extends Controller
 
                 ### Adding attributes
                 for ($i = 0; $i < count($listAttributes); $i++) {
-                    $valueAttribute = trim($listAttributes[$i]['valueAttribute']);
-                    $valueAttribute = htmlspecialchars($valueAttribute);
-                    $param = $offer->addChild('param', $valueAttribute);
-                    $param->addAttribute('name', $listAttributes[$i]['nameAttribute']);
+                    if (isset($listAttributes[$i]['valueAttribute']) && isset($listAttributes[$i]['nameAttribute'])){
+                        $valueAttribute = trim($listAttributes[$i]['valueAttribute']);
+                        $valueAttribute = htmlspecialchars($valueAttribute);
+                        $param = $offer->addChild('param', $valueAttribute);
+                        $param->addAttribute('name', $listAttributes[$i]['nameAttribute']);
+                    }
                 }
                 $param = $offer->addChild('param', $model);
                 $param->addAttribute('name', 'Артикул');

@@ -6,7 +6,7 @@ class ModelApiYmlGetYml extends Model {
      * @return bool|object
      */
     public function getCategories(){
-        $result = $this->db->query("SELECT `category_id`, `name` FROM `" . DB_PREFIX . "category_description` WHERE 1 ORDER BY `category_id` LIMIT 5 OFFSET 10");
+        $result = $this->db->query("SELECT `category_id`, `name` FROM `" . DB_PREFIX . "category_description` WHERE 1 ORDER BY `category_id`");
         if ($result->num_rows > 0) {
             return $result;
         }
@@ -15,10 +15,10 @@ class ModelApiYmlGetYml extends Model {
 
     /**
      * Getting products
-     * @return bool || result object
+     * @return bool || result objectpyftn&
      */
     public function getProducts(){
-        $result = $this->db->query("SELECT * FROM `" . DB_PREFIX . "product` WHERE `status` = 1 LIMIT 5 OFFSET 10");
+        $result = $this->db->query("SELECT * FROM `" . DB_PREFIX . "product` WHERE `status` = 1");
         if ($result->num_rows > 0) {
             return $result;
         }
@@ -26,7 +26,7 @@ class ModelApiYmlGetYml extends Model {
     }
 
     /**
-     * Gettind product name by ID
+     * Getting product name by ID
      * @param $product_id
      * @return bool|string
      */
@@ -93,6 +93,16 @@ class ModelApiYmlGetYml extends Model {
      */
     public function getSpecialPrice($productId, $priceId){
         $result = $this->db->query("SELECT `price` FROM `" . DB_PREFIX . "product_special` WHERE `product_id` = '$productId' AND `customer_group_id`='$priceId'");
+        if ($result->num_rows > 0) {
+            foreach($result->rows as $row) {
+                return $row['price'];
+            }
+        }
+        return false;
+    }
+
+    public function getDiscountValue($productId, $customerGroupId){
+        $result = $this->db->query("SELECT `price` FROM `" . DB_PREFIX . "product_discount` WHERE `product_id` = '$productId' AND `customer_group_id`='$customerGroupId'");
         if ($result->num_rows > 0) {
             foreach($result->rows as $row) {
                 return $row['price'];
@@ -192,10 +202,41 @@ class ModelApiYmlGetYml extends Model {
      * @param $name
      * @return bool|array
      */
-    public function getCategoryPromId($name){
+    public function getCategoryProm($name){
         $result = $this->db->query("SELECT * FROM `" . DB_PREFIX . "prom_category` WHERE `name` LIKE '$name'");
         if ($result->num_rows > 0) {
             return $result;
+        }
+        return false;
+    }
+
+    /**
+     * Getting category data by category id from 1C
+     * @param $category_id
+     * @return bool|array
+     */
+    public function getCategoryPromByRealId($category_id){
+        $result = $this->db->query("SELECT `id_prom` FROM `" . DB_PREFIX . "prom_category` WHERE `category_id` = '$category_id'");
+        if ($result->num_rows > 0) {
+            foreach($result->rows as $row) {
+                return $row['id_prom'];
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Getting wholesale price by product ID (customer price ID = 16)
+     * @param $productId
+     * @param $priceId
+     * @return bool|Int
+     */
+    public function getWholesalePrice($productId, $priceId){
+        $result = $this->db->query("SELECT `price` FROM `" . DB_PREFIX . "product_discount` WHERE `product_id` = '$productId' AND `customer_group_id`='$priceId'");
+        if ($result->num_rows > 0) {
+            foreach($result->rows as $row) {
+                return $row['price'];
+            }
         }
         return false;
     }
